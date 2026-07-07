@@ -1,0 +1,49 @@
+{% set versions = {
+    "0.0.0": "REPLACE_WITH_SHA256"
+} %}
+
+{% set version = environ.get('COMMIT_VERSION', None) %}
+{% set version = version or versions.keys()|first %}
+{% set version = version|string %}
+
+{% set name = environ.get('ANACONDA_PACKAGE', 'herwig7')|string|lower %}
+
+package:
+  name: {{ name }}
+  version: {{ environ.get('ANACONDA_VERSION', version)|replace("-", ".") }}
+
+source:
+  url: "https://herwig.hepforge.org/archive/refs/tags/{{ version }}.tar.gz"   # TODO: confirm upstream's actual tag/tarball naming
+  {% if versions.get(version, None) %}
+  sha256: {{ versions.get(version) }}
+  {% endif %}
+
+build:
+  number: 0
+  run_exports:
+    - {{ pin_subpackage(name, max_pin="x.x.x") }}
+
+requirements:
+  build:
+    - {{ compiler('c') }}
+    - {{ compiler('cxx') }}
+    - {{ stdlib('c') }}
+    - cmake
+    - make
+  host:
+    # TODO: library dependencies
+  run:
+    # TODO: runtime dependencies
+
+test:
+  commands:
+    - echo "TODO: a real smoke test"
+
+about:
+  home: "https://herwig.hepforge.org"
+  license: "GPL-3.0-or-later"
+  summary: "Herwig 7: general-purpose Monte Carlo event generator for particle physics"
+
+extra:
+  recipe-maintainers:
+    - meiyasan

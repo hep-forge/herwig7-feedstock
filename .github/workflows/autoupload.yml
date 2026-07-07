@@ -1,0 +1,401 @@
+name: Anaconda Build & Upload
+
+on:
+  push:
+    tags:
+      - '[0-9]*'         # only version-like tags (e.g. 3.5.1, 1.056)
+  workflow_dispatch:     # manual builds: only run if the ref picked in the
+                         # UI/API is itself a tag (see the env job's `if:`)
+    inputs:
+      triggered_by:
+        description: "Who/what dispatched this run (self-declared; hep-bot-rebuild.yml sets 'bot')"
+        type: choice
+        options: [manual, bot]
+        default: manual
+
+jobs:
+  env:
+    # Policy: tag refs only, full stop -- whether the run came from a tag
+    # push or from workflow_dispatch manually run AT a tag. Dispatching at
+    # a branch (main) no-ops: the run shows as skipped, nothing builds,
+    # nothing uploads. There is no branch/dev-build escape hatch.
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    outputs:
+      COMMIT_SHA: ${{ steps.git.outputs.COMMIT_SHA }}
+      COMMIT_LATEST_TAG: ${{ steps.git.outputs.COMMIT_LATEST_TAG }}
+      COMMIT_TAG: ${{ steps.git.outputs.COMMIT_TAG }}
+      COMMIT_VERSION: ${{ steps.git.outputs.COMMIT_VERSION }}
+      COMMIT_TYPE: ${{ steps.git.outputs.COMMIT_TYPE }}
+
+      ANACONDA_LABEL: ${{ steps.anaconda.outputs.ANACONDA_LABEL }}
+      ANACONDA_VERSION: ${{ steps.anaconda.outputs.ANACONDA_VERSION }}
+      ANACONDA_PACKAGE: ${{ steps.anaconda.outputs.ANACONDA_PACKAGE }}
+
+    steps:
+      # GitHub's API has no field distinguishing a human's workflow_dispatch
+      # from an automated one (both are just event=workflow_dispatch from
+      # whichever token dispatched them) -- so this step's NAME embeds the
+      # trigger source, which the Jobs API (and scripts/feedstock_status.sh) can
+      # read back. Self-declared: hep-bot-rebuild.yml passes
+      # -f triggered_by=bot; anything else defaults to manual.
+      - name: "Triggered by: ${{ github.event_name == 'push' && 'push' || inputs.triggered_by || 'manual' }}"
+        run: 'true'
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - id: git
+        name: Fetch Git Repository Information
+        run: |
+          COMMIT_SHA=$(git rev-parse HEAD || exit 1)
+          [ -z "$COMMIT_SHA" ] || echo "COMMIT_SHA=$COMMIT_SHA" >> $GITHUB_ENV
+          [ -z "$COMMIT_SHA" ] || echo "COMMIT_SHA=$COMMIT_SHA" >> $GITHUB_OUTPUT
+
+          COMMIT_LATEST_TAG=$(git describe --tags --abbrev=0 2> /dev/null || echo "")
+          [ -z "$COMMIT_LATEST_TAG" ] || echo "COMMIT_LATEST_TAG=$COMMIT_LATEST_TAG" >> $GITHUB_ENV
+          [ -z "$COMMIT_LATEST_TAG" ] || echo "COMMIT_LATEST_TAG=$COMMIT_LATEST_TAG" >> $GITHUB_OUTPUT
+
+          [ "$GITHUB_REF_TYPE" == "tag" ] && COMMIT_TAG="$GITHUB_REF_NAME" || COMMIT_TAG=""
+          [ -z "$COMMIT_TAG" ] && echo "COMMIT_TYPE=dev" >> $GITHUB_ENV    || echo "COMMIT_TAG=$COMMIT_TAG" >> $GITHUB_ENV
+          [ -z "$COMMIT_TAG" ] && echo "COMMIT_TYPE=dev" >> $GITHUB_OUTPUT || echo "COMMIT_TAG=$COMMIT_TAG" >> $GITHUB_OUTPUT
+
+          COMMIT_VERSION="${COMMIT_TAG:-${COMMIT_LATEST_TAG}}"
+          [ -z "$COMMIT_VERSION" ] || echo "COMMIT_VERSION=$COMMIT_VERSION" >> $GITHUB_ENV
+          [ -z "$COMMIT_VERSION" ] || echo "COMMIT_VERSION=$COMMIT_VERSION" >> $GITHUB_OUTPUT
+
+      - id: anaconda
+        name: Set Package Name, Version and Label
+        run: |
+          [ -n "$COMMIT_TYPE" ] && COMMIT_TYPE="-$COMMIT_TYPE"
+
+          ANACONDA_PACKAGE=$(basename `git rev-parse --show-toplevel` | sed 's,-feedstock,,g')
+          echo "ANACONDA_PACKAGE=$ANACONDA_PACKAGE" >> $GITHUB_ENV
+          echo "ANACONDA_PACKAGE=$ANACONDA_PACKAGE" >> $GITHUB_OUTPUT
+
+          ANACONDA_LABEL="${{ github.event.base_ref != '' && github.event.base_ref != 'null' && github.event.base_ref || github.ref }}"
+          ANACONDA_LABEL="${ANACONDA_LABEL#refs/heads/}"
+          ANACONDA_LABEL="${ANACONDA_LABEL#refs/tags/}"
+          # Labels track branches; a run dispatched at a tag ref has no
+          # branch, so fall back to the default branch instead of the tag.
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$ANACONDA_LABEL" = "$GITHUB_REF_NAME" ]; then
+            ANACONDA_LABEL="${{ github.event.repository.default_branch }}"
+          fi
+          ANACONDA_LABEL="${ANACONDA_LABEL:-main}"
+          echo "ANACONDA_LABEL=$ANACONDA_LABEL" >> $GITHUB_ENV
+          echo "ANACONDA_LABEL=$ANACONDA_LABEL" >> $GITHUB_OUTPUT
+
+          ANACONDA_VERSION=${COMMIT_VERSION//-/.}
+          ANACONDA_VERSION=${ANACONDA_VERSION:-0.0.0}${COMMIT_TYPE//-/.}
+          echo "ANACONDA_VERSION=$ANACONDA_VERSION" >> $GITHUB_ENV
+          echo "ANACONDA_VERSION=$ANACONDA_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Print GitHub Context as JSON
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }}
+        run: |
+          echo "$GITHUB_CONTEXT"
+
+      - name: Print Environment
+        run: |
+          env
+
+      - name: Job Summary
+        if: success()
+        run: |
+          echo "## ♻️ Environment Setup Complete" >> $GITHUB_STEP_SUMMARY
+          echo "The environment has been set up successfully and is ready for the build process." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### ⚛️ Git Information Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${COMMIT_SHA}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Latest Tag:** \`${COMMIT_LATEST_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Requested Tag:** \`${COMMIT_TAG}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 📦 Package Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Name:** \`${ANACONDA_PACKAGE}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** \`${ANACONDA_VERSION}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Label:** \`${ANACONDA_LABEL}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "🎉 **The environment is successfully configured and all requirements are met.**" >> $GITHUB_STEP_SUMMARY
+
+  # Single matrix job -> shows as 2 parallel branches (amd64 / arm64)
+  # in the Actions run graph instead of 2 separate workflow files.
+  build:
+    needs: env
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: amd64
+            runs-on: ubuntu-24.04
+            os: linux
+          - id: arm64
+            runs-on: ubuntu-24.04-arm
+            os: linux
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Conda (AMD64)
+        if: matrix.id == 'amd64'
+        uses: conda-incubator/setup-miniconda@v2
+        with:
+          auto-update-conda: true
+
+      - name: Install Miniforge (Linux ARM64)
+        if: matrix.id == 'arm64'
+        run: |
+          wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-aarch64.sh -O $HOME/miniforge.sh
+          bash $HOME/miniforge.sh -b -p $HOME/miniconda
+          echo "$HOME/miniconda/bin" >> $GITHUB_PATH
+          source $HOME/miniconda/etc/profile.d/conda.sh
+          conda init bash
+          conda update -n base -c defaults conda
+
+      - name: Resolve Conda Prefix
+        id: conda
+        run: |
+          if [ "${{ matrix.id }}" = "amd64" ]; then
+            echo "PREFIX=/usr/share/miniconda" >> $GITHUB_OUTPUT
+          else
+            echo "PREFIX=$HOME/miniconda" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install Forge & Tools
+        run: |
+          # Same tooling on both legs: the old python=3.10 pin (needed only
+          # by conda-verify) left arm64 with an outdated conda-build that
+          # produced .tar.bz2 packages and crashed on self run_exports
+          # ("<pkg> cannot depend on itself"). conda-smithy/conda-verify are
+          # not used by this workflow.
+          "${{ steps.conda.outputs.PREFIX }}/bin/conda" install -c conda-forge -y conda-build conda-package-handling
+          "${{ steps.conda.outputs.PREFIX }}/bin/conda" config --set channel_priority strict
+          "${{ steps.conda.outputs.PREFIX }}/bin/conda" config --add channels defaults
+          "${{ steps.conda.outputs.PREFIX }}/bin/conda" config --add channels conda-forge
+          "${{ steps.conda.outputs.PREFIX }}/bin/conda" config --add channels hep-forge
+
+      - name: Build Package
+        env:
+          # NOTE: conda-build filters the environment; CI-level vars do
+          # NOT reach build scripts. Recipes needing e.g.
+          # CMAKE_POLICY_VERSION_MINIMUM=3.5 (CMake 4 vs old upstreams)
+          # must export it in their own build.sh.
+          COMMIT_LATEST_TAG: ${{ needs.env.outputs.COMMIT_LATEST_TAG }}
+          COMMIT_VERSION: ${{ needs.env.outputs.COMMIT_VERSION }}
+          COMMIT_TYPE: ${{ needs.env.outputs.COMMIT_TYPE }}
+          COMMIT_SHA: ${{ needs.env.outputs.COMMIT_SHA }}
+          COMMIT_TAG: ${{ needs.env.outputs.COMMIT_TAG }}
+
+          ANACONDA_LABEL: ${{ needs.env.outputs.ANACONDA_LABEL }}
+          ANACONDA_VERSION: ${{ needs.env.outputs.ANACONDA_VERSION }}
+          ANACONDA_PACKAGE: ${{ needs.env.outputs.ANACONDA_PACKAGE }}
+        run: |
+          "${{ steps.conda.outputs.PREFIX }}/bin/conda" build recipe --output-folder pkgs
+          # --out-folder: cph writes to the CWD by default, which would
+          # drop the .conda outside the pkgs/*/ artifact glob
+          for PKG in $(find pkgs -name "*.tar.bz2"); do
+              "${{ steps.conda.outputs.PREFIX }}/bin/cph" transmute $PKG .conda --out-folder "$(dirname $PKG)"
+          done
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: conda-packages-${{ matrix.id }}
+          path: pkgs/*/*.conda
+
+      - name: Job Summary
+        if: success()
+        env:
+          ANACONDA_PACKAGE: ${{ needs.env.outputs.ANACONDA_PACKAGE }}
+          ANACONDA_VERSION: ${{ needs.env.outputs.ANACONDA_VERSION }}
+          ANACONDA_LABEL: ${{ needs.env.outputs.ANACONDA_LABEL }}
+        run: |
+          echo "## 🎉 Build Summary (${{ matrix.id }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 📦 Package Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Package Name:** \`${ANACONDA_PACKAGE}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** \`${ANACONDA_VERSION}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Label:** \`${ANACONDA_LABEL}\`" >> $GITHUB_STEP_SUMMARY
+          for PACKAGE_PATH in $(find pkgs -name "*.conda" | sort); do
+              PACKAGE_SIZE=$(stat -f%z "$PACKAGE_PATH" 2>/dev/null || stat -c%s "$PACKAGE_PATH")
+              echo "  * \`$(basename ${PACKAGE_PATH})\` ~ $((${PACKAGE_SIZE:-0} / 1024))KB" >> $GITHUB_STEP_SUMMARY
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  publish:
+    # env already gated the whole run to tag refs; needs.env.result
+    # re-checks that in case this job is re-run in isolation.
+    # always(): a failed leg must not block publishing the other one --
+    # amd64 and arm64 converge independently; rerunning the failed leg
+    # later re-publishes it.
+    if: always() && github.ref_type == 'tag' && needs.env.result == 'success'
+    runs-on: ubuntu-latest
+    needs: [env, build]
+    steps:
+      # needed so the Trim step can read recipe/meta.yaml's
+      # extra.lts (this job has no other checkout).
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # merge-multiple would corrupt noarch packages: both build legs
+      # produce the same noarch/<pkg>.conda path, and extracting two
+      # artifacts onto one path races (seen as "Is this a valid conda
+      # package?" on upload). Keep legs in separate dirs and dedupe below.
+      # continue-on-error: with every leg failed there are no artifacts,
+      # and the upload loop below simply finds nothing.
+      - name: Download All Artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: conda-packages-*
+          path: pkgs-all
+
+      - name: Install Forge & Tools
+        run: |
+          /usr/share/miniconda/bin/conda install -c conda-forge -y anaconda-client
+
+      - name: Upload to Anaconda
+        env:
+          ANACONDA_PACKAGE: ${{ needs.env.outputs.ANACONDA_PACKAGE }}
+          ANACONDA_VERSION: ${{ needs.env.outputs.ANACONDA_VERSION }}
+          ANACONDA_LABEL: ${{ needs.env.outputs.ANACONDA_LABEL }}
+          ANACONDA_API_TOKEN: ${{ secrets.ANACONDA_API_TOKEN }}
+        run: |
+          [ -z "$ANACONDA_VERSION" ] && exit 1
+          case "$ANACONDA_VERSION" in
+            *dev*|0.0.0*) echo "Refusing to upload dev build ($ANACONDA_VERSION)"; exit 0 ;;
+          esac
+          # Dedupe by subdir/filename: noarch packages are built
+          # identically by both legs and must be uploaded once.
+          declare -A SEEN
+          UPLOADED=0
+          for CONDA in $(find pkgs-all -name "*.conda" | sort); do
+            KEY="$(basename "$(dirname "$CONDA")")/$(basename "$CONDA")"
+            [ -n "${SEEN[$KEY]:-}" ] && { echo "Skipping duplicate $KEY"; continue; }
+            SEEN[$KEY]=1
+            /usr/share/miniconda/bin/anaconda -t $ANACONDA_API_TOKEN upload --force "$CONDA" --label "$ANACONDA_LABEL"
+            UPLOADED=$((UPLOADED + 1))
+          done
+          # Both build legs failing leaves download-artifact (continue-on-error)
+          # with nothing, so this loop silently iterates zero times -- without
+          # this check the step (and the whole publish job) reports a
+          # misleading "success" despite publishing nothing.
+          if [ "$UPLOADED" -eq 0 ]; then
+            echo "::error::No .conda packages found to upload -- both build legs must have failed."
+            exit 1
+          fi
+
+      # anaconda.org free tier has limited storage: after each release,
+      # trim this package's old versions -- INDEPENDENTLY PER BRANCH/LABEL.
+      # One branch = one Anaconda label (main, legacy, eic, cern, old, ...);
+      # each keeps its own newest TRIM_KEEP non-dev versions plus its own
+      # extra.lts entries (recipe/meta.yaml, keyed by branch -- "lts" as
+      # in: these versions are Long-Term-Supported in *this channel* and
+      # never auto-trimmed, everything else is meant to disappear. Not to
+      # be confused with any upstream software's own "LTS" release
+      # naming -- e.g. root-feedstock pins old ROOT releases still
+      # required by downstream conda_build_config.yaml `root:` variants):
+      #   extra:
+      #     lts:
+      #       main: ["6.34.10", "6.32.16"]
+      # A flat list (no branch keys) is still accepted for backward
+      # compat and is treated as the "main" branch's list.
+      # The "keep" label is a standalone overlay, not a branch: any
+      # version carrying it is protected outright, everywhere. Apply it
+      # without a recipe change with:
+      #   anaconda copy <org>/<pkg>/<version> --from-label main --to-label keep
+      # (the org-wide `anaconda label` command has no per-version scoping;
+      # `copy` with a 3-part spec -- no filename -- copies every file of
+      # that version to the new label. UI works too.)
+      # Everything else, including retired *dev* uploads, is removed.
+      - name: Trim Old Versions
+        env:
+          ANACONDA_PACKAGE: ${{ needs.env.outputs.ANACONDA_PACKAGE }}
+          ANACONDA_API_TOKEN: ${{ secrets.ANACONDA_API_TOKEN }}
+          TRIM_KEEP: "2"
+        run: |
+          pip install --quiet pyyaml
+          python3 <<'PYEOF' > trim_plan.txt
+          import json, os, re, urllib.request
+          import yaml
+
+          def vkey(v):
+              return [int(p) if p.isdigit() else -1 for p in re.split(r"[._-]", v)]
+
+          def lts_from_recipe():
+              # {branch_label: {version, ...}}
+              try:
+                  text = open("recipe/meta.yaml").read()
+              except OSError:
+                  return {}
+              text = re.sub(r"\{%.*?%\}", "", text, flags=re.DOTALL)
+              text = re.sub(r"\{\{.*?\}\}", "JINJA_VALUE", text)
+              meta = yaml.safe_load(text) or {}
+              raw = (meta.get("extra", {}) or {}).get("lts", {}) or {}
+              if isinstance(raw, list):
+                  return {"main": {str(v) for v in raw}}
+              return {str(b): {str(v) for v in (vs or [])} for b, vs in raw.items()}
+
+          org, pkg = "${{ github.repository_owner }}", os.environ["ANACONDA_PACKAGE"]
+          keep_n = int(os.environ.get("TRIM_KEEP", "2"))
+          with urllib.request.urlopen(f"https://api.anaconda.org/package/{org}/{pkg}", timeout=30) as r:
+              data = json.load(r)
+          labels_of = {}
+          for f in data.get("files", []):
+              labels_of.setdefault(f.get("version", ""), set()).update(f.get("labels", []))
+          versions = [v for v in labels_of if v]
+          lts_versions = lts_from_recipe()
+
+          # "keep" is a standalone overlay flag, not a release line.
+          protect = {v for v in versions if "keep" in labels_of[v]}
+
+          # Every other label is a branch/release line, trimmed on its own:
+          # only numeric versions count as releases for that branch (junk
+          # like master/latest/beta trims away like a dev build); a branch
+          # with no numeric release yet keeps its newest non-dev version.
+          branch_labels = set()
+          for v in versions:
+              branch_labels |= (labels_of[v] - {"keep"})
+          for branch in branch_labels:
+              branch_versions = [v for v in versions if branch in labels_of[v]]
+              releases = sorted(
+                  (v for v in branch_versions if "dev" not in v and re.match(r"^\d", v)),
+                  key=vkey, reverse=True)
+              protect |= set(releases[:keep_n])
+              protect |= lts_versions.get(branch, set()) & set(branch_versions)
+              if not releases:
+                  fallback = [v for v in branch_versions if "dev" not in v]
+                  if fallback:
+                      protect.add(max(fallback, key=vkey))
+
+          for v in sorted(versions, key=vkey, reverse=True):
+              action = "KEEP" if v in protect else "DELETE"
+              print(f"{action} {org}/{pkg}/{v}  {sorted(labels_of[v])}")
+          PYEOF
+          cat trim_plan.txt
+          grep "^DELETE " trim_plan.txt | awk '{print $2}' | while read SPEC; do
+            /usr/share/miniconda/bin/anaconda -t $ANACONDA_API_TOKEN remove --force "$SPEC" \
+              || echo "WARNING: failed to remove $SPEC"
+          done
+
+      - name: Job Summary
+        if: success()
+        env:
+          ANACONDA_PACKAGE: ${{ needs.env.outputs.ANACONDA_PACKAGE }}
+          ANACONDA_VERSION: ${{ needs.env.outputs.ANACONDA_VERSION }}
+          ANACONDA_LABEL: ${{ needs.env.outputs.ANACONDA_LABEL }}
+        run: |
+          echo "### 📥 Package Location" >> $GITHUB_STEP_SUMMARY
+          echo "- https://anaconda.org/${GITHUB_REPOSITORY_OWNER}/${ANACONDA_PACKAGE}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "## 🎉 Congratulations!" >> $GITHUB_STEP_SUMMARY
+          echo "Package \`${ANACONDA_PACKAGE}@${ANACONDA_VERSION}\` just got successfully uploaded with \"$ANACONDA_LABEL\" label (amd64 + arm64)!" >> $GITHUB_STEP_SUMMARY

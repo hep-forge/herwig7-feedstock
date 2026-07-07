@@ -1,0 +1,24 @@
+build_platform:
+  linux_aarch64: linux_aarch64
+channels:
+  sources:
+    - hep-forge
+    - conda-forge
+  targets:
+    - [hep-forge, main]
+conda_build:
+  pkg_format: '2'
+conda_forge_output_validation: false
+github:
+  user_or_org: hep-forge
+  branch_name: main
+  tooling_branch_name: main
+provider:
+  linux_64: github_actions
+  linux_aarch64: github_actions
+  osx_64: None
+  win_64: None
+  linux_ppc64le: None
+
+skip_render:
+  - README.md
