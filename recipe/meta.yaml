@@ -1,5 +1,5 @@
 {% set versions = {
-    "0.0.0": "REPLACE_WITH_SHA256"
+    "7.3.0": "REPLACE_WITH_SHA256"
 } %}
 
 {% set version = environ.get('COMMIT_VERSION', None) %}
@@ -13,7 +13,12 @@ package:
   version: {{ environ.get('ANACONDA_VERSION', version)|replace("-", ".") }}
 
 source:
-  url: "https://herwig.hepforge.org/archive/refs/tags/{{ version }}.tar.gz"   # TODO: confirm upstream's actual tag/tarball naming
+  # TODO: herwig.hepforge.org is behind an anti-bot page (Anubis) that blocks
+  # scripted fetches -- confirm the real tarball URL by hand (the official
+  # install path is a bootstrap script, herwig.hepforge.org/downloads/herwig-bootstrap,
+  # which builds ThePEG + Herwig together via Mercurial, not a plain tarball).
+  url: "https://herwig.hepforge.org/downloads/?f=Herwig-{{ version }}.tar.bz2"
+  fn: "Herwig-{{ version }}.tar.bz2"
   {% if versions.get(version, None) %}
   sha256: {{ versions.get(version) }}
   {% endif %}
@@ -28,19 +33,21 @@ requirements:
     - {{ compiler('c') }}
     - {{ compiler('cxx') }}
     - {{ stdlib('c') }}
-    - cmake
     - make
+    - automake
+    - libtool
   host:
-    # TODO: library dependencies
+    # TODO: Herwig 7 requires its own ThePEG library (same maintainers, not
+    # yet packaged in hep-forge or conda-forge) plus GSL, FastJet, LHAPDF,
+    # Boost, HepMC. ThePEG needs to be built first.
   run:
-    # TODO: runtime dependencies
 
 test:
   commands:
     - echo "TODO: a real smoke test"
 
 about:
-  home: "https://herwig.hepforge.org"
+  home: "https://herwig.hepforge.org/"
   license: "GPL-3.0-or-later"
   summary: "Herwig 7: general-purpose Monte Carlo event generator for particle physics"
 
