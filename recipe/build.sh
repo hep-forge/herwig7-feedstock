@@ -14,6 +14,15 @@ NPROC=$(nproc 2>/dev/null || sysctl -n hw.ncpu)
 # linking. Append (not replace) conda's own LDFLAGS.
 export LDFLAGS="${LDFLAGS:-} -Wl,-rpath,${PREFIX}/lib/ThePEG"
 
+# arm64-only: the bundled LoopTools Fortran (D/D0func.F, D/D0funcC.F)
+# has an integer constant that overflows gfortran's default range
+# check on aarch64 but not x86_64 ("Integer too big for its kind" /
+# "must be a PARAMETER in DATA statement", both symptoms of the same
+# range-check failure) -- gfortran's own error message names the fix.
+case "$(uname -m)" in
+  aarch64) export FFLAGS="${FFLAGS:-} -fno-range-check" ;;
+esac
+
 ./configure \
   --prefix="${PREFIX}" \
   --with-thepeg="${PREFIX}" \
