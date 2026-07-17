@@ -1,5 +1,5 @@
 {% set versions = {
-    "7.3.0": "REPLACE_WITH_SHA256"
+    "7.3.0": "2624819d2dff105ba952ea1b5cf12eb6f4926d4951774a41907699e2f567686c"
 } %}
 
 {% set version = environ.get('COMMIT_VERSION', None) %}
@@ -13,10 +13,11 @@ package:
   version: {{ environ.get('ANACONDA_VERSION', version)|replace("-", ".") }}
 
 source:
-  # TODO: herwig.hepforge.org is behind an anti-bot page (Anubis) that blocks
-  # scripted fetches -- confirm the real tarball URL by hand (the official
-  # install path is a bootstrap script, herwig.hepforge.org/downloads/herwig-bootstrap,
-  # which builds ThePEG + Herwig together via Mercurial, not a plain tarball).
+  # herwig.hepforge.org's plain downloads?f= links are NOT actually behind
+  # an anti-bot page -- earlier assumption was wrong, verified with a
+  # plain curl -L. The official herwig-bootstrap installer (which builds
+  # ThePEG + Herwig together) confirms this is exactly upstream's own
+  # download path, just fetched directly instead of via the installer.
   url: "https://herwig.hepforge.org/downloads/?f=Herwig-{{ version }}.tar.bz2"
   fn: "Herwig-{{ version }}.tar.bz2"
   {% if versions.get(version, None) %}
@@ -32,24 +33,55 @@ requirements:
   build:
     - {{ compiler('c') }}
     - {{ compiler('cxx') }}
+    - {{ compiler('fortran') }}
     - {{ stdlib('c') }}
     - make
     - automake
     - libtool
   host:
-    # TODO: Herwig 7 requires its own ThePEG library (same maintainers, not
-    # yet packaged in hep-forge or conda-forge) plus GSL, FastJet, LHAPDF,
-    # Boost, HepMC. ThePEG needs to be built first.
+    # ThePEG is Herwig's mandatory event-generation framework (built here
+    # with LHAPDF+FastJet, both of which Herwig's own configure hard-
+    # requires ThePEG to already have). GSL/Boost are ThePEG's transitive
+    # deps, needed directly by Herwig's own configure too. LoopTools is
+    # bundled in-tree (Herwig-7.3.0/Looptools/) and built automatically --
+    # no separate package needed, just the Fortran compiler.
+    - thepeg
+    - gsl
+    - libboost-devel
+    - lhapdf
+    - fastjet
+    - zlib
   run:
+    - thepeg
+    - gsl
+    - libboost-devel
+    - lhapdf
+    - fastjet
+    - zlib
 
 test:
   commands:
-    - echo "TODO: a real smoke test"
+    - Herwig --version
 
 about:
   home: "https://herwig.hepforge.org/"
+  dev_url: "https://herwig.hepforge.org/"
   license: "GPL-3.0-or-later"
   summary: "Herwig 7: general-purpose Monte Carlo event generator for particle physics"
+  description: |
+    Herwig 7 is a general-purpose Monte Carlo event generator, built on
+    the ThePEG event-generation framework (packaged separately as
+    hep-forge's thepeg). This build enables the mandatory LHAPDF and
+    FastJet support (both required by Herwig's own configure checks)
+    plus GSL and Boost. LoopTools is bundled in Herwig's own source tree
+    and builds automatically.
+
+    Optional external matrix-element interfaces (Pythia8, VBFNLO, NJet,
+    GoSam, OpenLoops, MadGraph, EvtGen) are intentionally left disabled
+    for a first working core package -- Pythia8 in particular is
+    auto-detected via pythia8-config on PATH if present, so adding
+    hep-forge's own pythia package as a host dep would be a small,
+    low-risk follow-up worth revisiting.
 
 extra:
   recipe-maintainers:
