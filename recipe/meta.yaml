@@ -23,6 +23,8 @@ source:
   {% if versions.get(version, None) %}
   sha256: {{ versions.get(version) }}
   {% endif %}
+  patches:
+    - patches/0001-fix-aarch64-looptools-default-integer-8.patch
 
 build:
   number: 0
