@@ -16,7 +16,7 @@ Herwig 7: general-purpose Monte Carlo event generator for particle physics
 | Architecture | Latest published |
 |--------------|------------------|
 | linux-amd64 (`linux-64`) | ✅ `7.3.0` |
-| linux-arm64 (`linux-aarch64`) | ❌ not published |
+| linux-arm64 (`linux-aarch64`) | ✅ `7.3.0` |
 
 _As of the last feedstock render; the badges above are live._
 
