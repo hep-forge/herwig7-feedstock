@@ -3,6 +3,14 @@ set -eux
 
 chmod +x configure
 
+# macOS: the bundled libtool (2.4.6) gives -module plugins
+# "-undefined dynamic_lookup" only for deployment targets 10.*, not for 11.0+
+# as conda uses: backport libtool 2.4.7's fix (as conda-forge's thepeg does).
+if [[ "$(uname)" == "Darwin" ]]; then
+  sed -i.bak $'s/^\t10\\.\\*)$/\t*)/' configure
+  if grep -q $'^\t10\\.\\*)$' configure; then echo "libtool darwin case not patched" >&2; exit 1; fi
+fi
+
 NPROC=$(nproc 2>/dev/null || sysctl -n hw.ncpu)
 
 # ThePEG's shared libraries live under $PREFIX/lib/ThePEG (a
@@ -17,11 +25,9 @@ export LDFLAGS="${LDFLAGS:-} -Wl,-rpath,${PREFIX}/lib/ThePEG"
 # macOS: ThePEG's headers use std::mem_fun and friends (removed in C++17,
 # kept by libc++ behind these macros) and std::insert_iterator without
 # <iterator>, as thepeg's own build found; without them configure's test
-# compile of ThePEG.h fails and it reports "No ThePEG headers". Herwig's
-# modules also take ThePEG's symbols from the loading process.
+# compile of ThePEG.h fails and it reports "No ThePEG headers".
 if [[ "$(uname)" == "Darwin" ]]; then
   export CXXFLAGS="${CXXFLAGS} -D_LIBCPP_ENABLE_CXX17_REMOVED_BINDERS -D_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION -D_LIBCPP_ENABLE_CXX17_REMOVED_RANDOM_SHUFFLE -include iterator"
-  export LDFLAGS="${LDFLAGS} -Wl,-undefined,dynamic_lookup"
 fi
 
 ./configure \
