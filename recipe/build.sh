@@ -3,12 +3,14 @@ set -eux
 
 chmod +x configure
 
-# macOS: the bundled libtool (2.4.6) gives -module plugins
-# "-undefined dynamic_lookup" only for deployment targets 10.*, not for 11.0+
-# as conda uses: backport libtool 2.4.7's fix (as conda-forge's thepeg does).
+# macOS: regenerate the build system with conda's autotools, as conda-forge's
+# herwig does. The bundled libtool (2.4.6) predates macOS 11 and links the
+# -module plugins wrongly there; with it, "Herwig init" at install finds
+# objects without their base classes' interfaces ("AlphaQCDISR:ScaleFactor
+# was not found").
 if [[ "$(uname)" == "Darwin" ]]; then
-  sed -i.bak $'s/^\t10\\.\\*)$/\t*)/' configure
-  if grep -q $'^\t10\\.\\*)$' configure; then echo "libtool darwin case not patched" >&2; exit 1; fi
+  autoreconf --force --install
+  cp "${BUILD_PREFIX}"/share/gnuconfig/config.* ./Config/
 fi
 
 NPROC=$(nproc 2>/dev/null || sysctl -n hw.ncpu)

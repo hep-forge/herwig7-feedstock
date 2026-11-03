@@ -40,6 +40,8 @@ requirements:
     - make
     - automake
     - libtool
+    - autoconf   # [osx]
+    - gnuconfig  # [osx]
   host:
     # ThePEG is Herwig's mandatory event-generation framework (built here
     # with LHAPDF+FastJet, both of which Herwig's own configure hard-
