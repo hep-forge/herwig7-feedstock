@@ -14,6 +14,16 @@ NPROC=$(nproc 2>/dev/null || sysctl -n hw.ncpu)
 # linking. Append (not replace) conda's own LDFLAGS.
 export LDFLAGS="${LDFLAGS:-} -Wl,-rpath,${PREFIX}/lib/ThePEG"
 
+# macOS: ThePEG's headers use std::mem_fun and friends (removed in C++17,
+# kept by libc++ behind these macros) and std::insert_iterator without
+# <iterator>, as thepeg's own build found; without them configure's test
+# compile of ThePEG.h fails and it reports "No ThePEG headers". Herwig's
+# modules also take ThePEG's symbols from the loading process.
+if [[ "$(uname)" == "Darwin" ]]; then
+  export CXXFLAGS="${CXXFLAGS} -D_LIBCPP_ENABLE_CXX17_REMOVED_BINDERS -D_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION -include iterator"
+  export LDFLAGS="${LDFLAGS} -Wl,-undefined,dynamic_lookup"
+fi
+
 ./configure \
   --prefix="${PREFIX}" \
   --with-thepeg="${PREFIX}" \
