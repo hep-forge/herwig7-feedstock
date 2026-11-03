@@ -20,7 +20,7 @@ export LDFLAGS="${LDFLAGS:-} -Wl,-rpath,${PREFIX}/lib/ThePEG"
 # compile of ThePEG.h fails and it reports "No ThePEG headers". Herwig's
 # modules also take ThePEG's symbols from the loading process.
 if [[ "$(uname)" == "Darwin" ]]; then
-  export CXXFLAGS="${CXXFLAGS} -D_LIBCPP_ENABLE_CXX17_REMOVED_BINDERS -D_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION -include iterator"
+  export CXXFLAGS="${CXXFLAGS} -D_LIBCPP_ENABLE_CXX17_REMOVED_BINDERS -D_LIBCPP_ENABLE_CXX17_REMOVED_UNARY_BINARY_FUNCTION -D_LIBCPP_ENABLE_CXX17_REMOVED_RANDOM_SHUFFLE -include iterator"
   export LDFLAGS="${LDFLAGS} -Wl,-undefined,dynamic_lookup"
 fi
 
