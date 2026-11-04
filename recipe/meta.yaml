@@ -28,6 +28,13 @@ source:
 
 build:
   number: 0
+  # Not on macOS (2026-11-04). It compiles there, but `Herwig init` at install
+  # fails: "The interface 'AlphaQCDISR:ScaleFactor' was not found" -- objects
+  # come up without their base classes' interfaces. Neither libtool's darwin
+  # fix, a regenerated build system, nor -fdefault-integer-8 for LoopTools
+  # (all still in build.sh) changed that. Nothing in hep-forge needs Herwig on
+  # macOS; conda-forge publishes herwig 7.3.0 for osx-arm64.
+  skip: true  # [osx]
   run_exports:
     - {{ pin_subpackage(name, max_pin="x.x.x") }}
 
