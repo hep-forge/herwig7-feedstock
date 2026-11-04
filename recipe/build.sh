@@ -9,6 +9,12 @@ chmod +x configure
 # objects without their base classes' interfaces ("AlphaQCDISR:ScaleFactor
 # was not found").
 if [[ "$(uname)" == "Darwin" ]]; then
+  # The bundled LoopTools needs -fdefault-integer-8, which m4/herwig.m4 adds
+  # only for x86_64-* and *-darwin1* hosts: macOS arm64 is
+  # arm64-apple-darwin20 ("Integer too big for its kind", "Parameter 'nz2'").
+  # The Linux aarch64 patch edits configure, which autoreconf regenerates.
+  sed -i.bak 's/^      x86_64-\*|\*-darwin1\*)$/      x86_64-*|aarch64-*|arm64-*|*-darwin*)/' m4/herwig.m4
+  grep -q 'arm64-\*|\*-darwin\*)' m4/herwig.m4
   autoreconf --force --install
   cp "${BUILD_PREFIX}"/share/gnuconfig/config.* ./Config/
 fi
