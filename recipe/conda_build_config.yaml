@@ -29,8 +29,12 @@ c_compiler_version:    # [linux]
   - 14                       # [linux]
 cxx_compiler_version:  # [linux]
   - 14                       # [linux]
-fortran_compiler_version: # [linux]
+# macOS too: Herwig's bundled LoopTools Fortran does not compile with
+# gfortran 16 ("Integer too big for its kind", "Parameter 'nz2' ... does not
+# reduce to a constant expression"); 14 is what Linux builds it with.
+fortran_compiler_version:
   - 14                       # [linux]
+  - 14                       # [osx]
 libgcc_version:        # [linux]
   - 14.*                     # [linux]
 libstdcxx_version:     # [linux]
